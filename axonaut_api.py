@@ -4,8 +4,8 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-API_KEY = os.getenv("AXONAUT_API_KEY")
-BASE_URL = os.getenv("AXONAUT_BASE_URL", "https://axonaut.com/api/v2")
+API_KEY = (os.getenv("AXONAUT_API_KEY") or "").strip()
+BASE_URL = (os.getenv("AXONAUT_BASE_URL") or "https://axonaut.com/api/v2").strip()
 
 HEADERS = {
     "userApiKey": API_KEY,
@@ -14,7 +14,7 @@ HEADERS = {
 
 
 def _get(endpoint: str):
-    url = f"{BASE_URL}/{endpoint}"
+    url = f"{BASE_URL}/{endpoint}".strip()
     response = requests.get(url, headers=HEADERS, timeout=30)
     print(f"{endpoint} status:", response.status_code)
     print(f"{endpoint} response:", response.text[:300])
