@@ -1,0 +1,40 @@
+name: Axonaut Export
+
+on:
+  schedule:
+    - cron: "0 6 * * *"
+  workflow_dispatch:
+
+jobs:
+  export-and-send:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout du repo
+        uses: actions/checkout@v4
+
+      - name: Installer Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Installer les dépendances
+        run: pip install -r requirements.txt
+
+      - name: Lancer l'export et envoyer l'email
+        env:
+          AXONAUT_API_KEY: ${{ secrets.AXONAUT_API_KEY }}
+          AXONAUT_BASE_URL: ${{ secrets.AXONAUT_BASE_URL }}
+          SMTP_HOST: ${{ secrets.SMTP_HOST }}
+          SMTP_PORT: ${{ secrets.SMTP_PORT }}
+          SMTP_USER: ${{ secrets.SMTP_USER }}
+          SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+          EMAIL_FROM: ${{ secrets.EMAIL_FROM }}
+          EMAIL_TO: ${{ secrets.EMAIL_TO }}
+        run: python main.py
+
+      - name: Sauvegarder l'Excel en artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: export-axonaut
+          path: exports/*.xlsx
