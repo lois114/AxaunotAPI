@@ -18,8 +18,10 @@ from transforms import (
 )
 from excel_export import export_workbook
 
+from email_sender import send_email_with_attachment
 
 def main():
+    
     print("Récupération des devis...")
     quotations = get_quotations()
 
@@ -52,14 +54,17 @@ def main():
         df_contracts, df_projects, df_invoices, df_users, df_companies
     )
 
-    export_workbook({
-        "devis": df_quotations,
-        "factures": df_invoices,
-        "contrats": df_contracts,
-        "projets": df_projects,
-        "suivi_commandes": df_suivi_commandes,
-        "facturation_a_editer": df_facturation,
+    file_path = export_workbook({
+    "devis": df_quotations,
+    "factures": df_invoices,
+    "contrats": df_contracts,
+    "projets": df_projects,
+    "suivi_commandes": df_suivi_commandes,
+    "facturation_a_editer": df_facturation,
     })
+
+    print(f"EXPORT_FILE={file_path}")
+    send_email_with_attachment(file_path)
 
 
 if __name__ == "__main__":
