@@ -13,14 +13,37 @@ HEADERS = {
 }
 
 
-def _get(endpoint: str):
-    url = f"{BASE_URL}/{endpoint}".strip()
-    response = requests.get(url, headers=HEADERS, timeout=30)
-    print(f"{endpoint} status:", response.status_code)
-    print(f"{endpoint} response:", response.text[:300])
-    response.raise_for_status()
-    return response.json()
+def _get(endpoint):
+    results = []
+    page = 1
 
+    while True:
+        headers = HEADERS.copy()
+        headers["page"] = str(page)
+
+        url = f"{BASE_URL}/{endpoint}"
+        response = requests.get(url, headers=headers, timeout=30)
+
+        if response.status_code not in (200, 403):
+            response.raise_for_status()
+
+        data = response.json()
+
+        if isinstance(data, list):
+            results.extend(data)
+            break
+
+        if "results" in data and "pages" in data:
+            results.extend(data.get("data", []))
+
+            if page >= data["pages"]:
+                break
+
+            page += 1
+        else:
+            break
+
+    return results
 
 def get_quotations():
     return _get("quotations")
