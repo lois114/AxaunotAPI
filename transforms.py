@@ -1,5 +1,12 @@
 import pandas as pd
 
+def normalize_id(series):
+    return (
+        pd.to_numeric(series, errors="coerce")
+        .astype("Int64")
+        .astype(str)
+        .replace("<NA>", "")
+    )
 
 def quotations_to_df(quotations):
     rows = []
@@ -47,7 +54,25 @@ def invoices_to_df(invoices):
 
 def contracts_to_df(contracts):
     rows = []
+
     for c in contracts:
+        departement = "Non défini"
+        sous_traitance = 0
+
+        custom_fields = c.get("custom_fields") or []
+
+        if isinstance(custom_fields, dict):
+            departement = custom_fields.get("Département") or "Non défini"
+            sous_traitance = custom_fields.get("Sous-Traitance") or 0
+
+        elif isinstance(custom_fields, list):
+            for field in custom_fields:
+                if isinstance(field, dict):
+                    if field.get("name") == "Département":
+                        departement = field.get("value") or "Non défini"
+                    elif field.get("name") == "Sous-Traitance":
+                        sous_traitance = field.get("value") or 0
+
         company = c.get("company") or {}
         project = c.get("project") or {}
         quotation = c.get("quotation") or {}
@@ -55,14 +80,15 @@ def contracts_to_df(contracts):
         project_number = project.get("number")
         project_name = project.get("name")
 
-        if project_number and project_name:
-            commande = f"{project_number} - {project_name}"
-        elif project_name:
-            commande = project_name
+        if project_name:
+            commande = project_name.replace("_", " ")
+        elif project_number:
+            commande = project_number
         elif c.get("name"):
             commande = c.get("name")
         else:
             commande = str(c.get("id"))
+
 
         rows.append({
             "contract_id": c.get("id"),
@@ -76,13 +102,17 @@ def contracts_to_df(contracts):
             "project_id": project.get("id"),
             "project_number": project_number,
             "project_name": project_name,
+            "departement": departement,
+            "sous_traitance": sous_traitance,
             "montant_devis_ht": quotation.get("pre_tax_amount"),
             "premiere_facture_prevue": c.get("first_invoice_planned_date"),
             "facturation_recurrente": c.get("generate_and_send_recurring_invoices"),
             "frequence_facturation_mois": c.get("invoice_frequency_in_months"),
             "invoices_id": c.get("invoices_id") or [],
         })
+
     return pd.DataFrame(rows)
+
 
 
 def projects_to_df(projects):
@@ -117,20 +147,12 @@ def users_to_df(users):
 def companies_to_df(companies):
     rows = []
     for c in companies:
-        categories = c.get("categories") or []
-        if categories and isinstance(categories[0], dict):
-            departement = ", ".join(
-                cat.get("name", "") for cat in categories if cat.get("name")
-            )
-        else:
-            departement = ", ".join(str(cat) for cat in categories if cat)
 
         business_manager = c.get("business_manager") or {}
-
+        
         rows.append({
             "company_id": c.get("id"),
             "client": c.get("name"),
-            "departement": departement,
             "commercial_company": business_manager.get("name"),
         })
     return pd.DataFrame(rows)
@@ -144,34 +166,38 @@ def _prepare_common(df_contracts, df_projects, df_invoices, df_users, df_compani
     companies = df_companies.copy()
 
     # types homogènes
-    contracts["contract_id"] = contracts["contract_id"].astype(str)
-    contracts["project_id"] = contracts["project_id"].fillna("").astype(str)
+    contracts["contract_id"] = normalize_id(contracts["contract_id"])
+    contracts["project_id"] = normalize_id(contracts["project_id"])
     contracts["company_id"] = pd.to_numeric(contracts["company_id"], errors="coerce")
 
-    projects["project_id"] = projects["project_id"].astype(str)
+    projects["project_id"] = normalize_id(projects["project_id"])
 
-    invoices["contract_id"] = invoices["contract_id"].fillna("").astype(str)
+    invoices["contract_id"] = normalize_id(invoices["contract_id"])
     invoices["company_id"] = pd.to_numeric(invoices["company_id"], errors="coerce")
     invoices["montant_ht"] = pd.to_numeric(invoices["montant_ht"], errors="coerce").fillna(0)
 
     users["user_id"] = pd.to_numeric(users["user_id"], errors="coerce")
     companies["company_id"] = pd.to_numeric(companies["company_id"], errors="coerce")
+ 
+
+    
 
     invoices_agg = (
-        invoices.groupby("contract_id", as_index=False)
-        .agg(
-            montant_facture_ht=("montant_ht", "sum"),
-            derniere_facture=("date", "max"),
-            commercial_facture=("commercial_facture", "first"),
-        )
+    invoices.groupby("contract_id", as_index=False)
+    .agg(
+        montant_facture_ht=("montant_ht", "sum"),
+        derniere_facture=("date", "max"),
+        commercial_facture=("commercial_facture", "first"),
+        montant_recurrent_mensuel=("montant_ht", "first"),
+    )
     )
 
     merged = (
-        contracts
-        .merge(projects, on="project_id", how="left")
-        .merge(users, on="user_id", how="left")
-        .merge(companies[["company_id", "departement", "commercial_company"]], on="company_id", how="left")
-        .merge(invoices_agg, on="contract_id", how="left")
+    contracts
+    .merge(projects, on="project_id", how="left")
+    .merge(users, on="user_id", how="left")
+    .merge(companies[["company_id", "commercial_company"]], on="company_id", how="left")
+    .merge(invoices_agg, on="contract_id", how="left")
     )
 
     merged["debut"] = merged["date_debut"].fillna(merged["actual_start"]).fillna(merged["estimated_start"])
@@ -194,18 +220,32 @@ def _prepare_common(df_contracts, df_projects, df_invoices, df_users, df_compani
     )
 
     merged["montant_recurrent_mensuel"] = merged.apply(
-        lambda r: r["montant_devis_ht"]
-        if pd.notna(r["frequence_facturation_mois"]) and r["frequence_facturation_mois"] == 1
-        else "",
-        axis=1
+    lambda r: r["montant_recurrent_mensuel"]
+    if pd.notna(r["frequence_facturation_mois"]) and r["frequence_facturation_mois"] == 1
+    else 0,
+    axis=1
     )
 
+
     for col in ["debut", "fin", "premiere_facture_prevue", "derniere_facture"]:
-        merged[col] = pd.to_datetime(merged[col], errors="coerce").dt.strftime("%d/%m/%Y")
+        merged[col] = pd.to_datetime(merged[col], errors="coerce")
+
+
+
 
     merged["prochaine_facture"] = merged["premiere_facture_prevue"].fillna("")
     merged["departement"] = merged["departement"].fillna("")
-    merged["sous_traitance"] = ""
+    merged["sous_traitance"] = (
+    merged["sous_traitance"]
+    .astype(str)
+    .str.replace(",", ".", regex=False)
+    )
+
+    merged["sous_traitance"] = pd.to_numeric(
+    merged["sous_traitance"],
+    errors="coerce"
+    ).fillna(0)
+
 
     return merged
 
@@ -221,11 +261,16 @@ def build_suivi_commandes(df_contracts, df_projects, df_invoices, df_users, df_c
         "fact_prev",
         "commercial",
         "montant_devis_ht",
-        "reste_a_facturer",
+        "montant_facture_ht",
         "montant_recurrent_mensuel",
         "departement",
         "sous_traitance",
     ]].copy()
+
+    # debug = merged[merged["contract_id"] == "7431712"][
+    # ["contract_id", "commande", "montant_devis_ht", "montant_facture_ht"]
+    # ]
+    # print(debug)
 
     result.columns = [
         "Commande",
@@ -253,7 +298,7 @@ def build_facturation_a_editer(df_contracts, df_projects, df_invoices, df_users,
         "commande",
         "debut",
         "fin",
-        "reste_a_facturer",
+        "montant_facture_ht",
         "derniere_facture",
         "fact_prev",
         "prochaine_facture",
