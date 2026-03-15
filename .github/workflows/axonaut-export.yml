@@ -1,4 +1,4 @@
-name: Axonaut Export
+name: Axonaut Dashboard Update
 
 on:
   schedule:
@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
 
 jobs:
-  export-and-send:
+  update-dashboard:
     runs-on: ubuntu-latest
 
     steps:
@@ -21,20 +21,15 @@ jobs:
       - name: Installer les dépendances
         run: pip install -r requirements.txt
 
-      - name: Lancer l'export et envoyer l'email
+      - name: Recreate Google service account file
+        shell: bash
+        run: |
+          cat > service-account.json <<'EOF'
+          ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+          EOF
+
+      - name: Lancer la mise à jour du dashboard
         env:
           AXONAUT_API_KEY: ${{ secrets.AXONAUT_API_KEY }}
           AXONAUT_BASE_URL: ${{ secrets.AXONAUT_BASE_URL }}
-          SMTP_HOST: ${{ secrets.SMTP_HOST }}
-          SMTP_PORT: ${{ secrets.SMTP_PORT }}
-          SMTP_USER: ${{ secrets.SMTP_USER }}
-          SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
-          EMAIL_FROM: ${{ secrets.EMAIL_FROM }}
-          EMAIL_TO: ${{ secrets.EMAIL_TO }}
-        run: python main.py
-
-      - name: Sauvegarder l'Excel en artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: export-axonaut
-          path: exports/*.xlsx
+        run: python main_v2_dashboard.py
