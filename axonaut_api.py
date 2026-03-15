@@ -29,19 +29,28 @@ def _get(endpoint):
 
         data = response.json()
 
+        # Cas le plus fréquent : l'API renvoie une liste
         if isinstance(data, list):
             results.extend(data)
-            break
 
-        if "results" in data and "pages" in data:
+            # Si moins de 500 résultats, c'est la dernière page
+            if len(data) < 500:
+                break
+
+            page += 1
+            continue
+
+        # Cas où l'API renvoie un objet avec pagination
+        if isinstance(data, dict) and "results" in data and "pages" in data:
             results.extend(data.get("data", []))
 
             if page >= data["pages"]:
                 break
 
             page += 1
-        else:
-            break
+            continue
+
+        break
 
     return results
 
